@@ -10,9 +10,10 @@ sys.path.append('/home/Alexandrite/smin/ISCL_v2/')
 from utils.image_tool import *
 import pylib as py
 from utils.parser import parse_args
-from models.trainer import Trainer
+from models.pre_trainer import pre_Trainer
 import numpy as nps
 from PIL import Image
+from utils.manage import *
 
 def ISCL(args, clean, noisy, test_clean, test_noisy):
 
@@ -35,13 +36,19 @@ def ISCL(args, clean, noisy, test_clean, test_noisy):
     BATCH_SIZE = args.batch_size * strategy.num_replicas_in_sync
 
 
-    model = Trainer(args)
+    model = pre_Trainer(args)
     model.compile()
 
     ckpt_dir = py.join(args.datasets_dir, 'pre_output', args.output_date, args.dir_num, 'checkpoints')
+    py.mkdir(ckpt_dir)
 
-    model.load_weights(ckpt_dir)
-    model.fit(dataset, epochs=args.epochs, validation_data=val_set, steps_per_epoch=len(clean))
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=ckpt_dir,
+        save_weights_only=True,
+        save_best_only=False)
+
+    model.fit(dataset, epochs=args.epochs, validation_data=val_set, steps_per_epoch=len(clean), callbacks=[model_checkpoint_callback])
+
 
     # Testing
 
@@ -65,25 +72,14 @@ def main():
         print("args is none")
         exit()
 
-    clean_data = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'db_train')), dtype=np.float32)
+    clean_data = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'train_clean')), dtype=np.float32)
     noisy_data = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'train_noisy')), dtype=np.float32)
 
-    clean_val = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'db_valid')), dtype=np.float32)
-    noisy_val = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'noisy')) , dtype=np.float32)
+    clean_val = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'val_clean')), dtype=np.float32)
+    noisy_val = np.array(image_read(py.join(args.datasets_dir, args.dataset, 'val_noisy')) , dtype=np.float32)
 
-    np.random.shuffle(clean_data)
-    np.random.shuffle(noisy_data)
-
-
-    output_dir = py.join(args.datasets_dir, 'output', args.output_date, args.dir_num)
+    output_dir = py.join(args.datasets_dir, 'pre_output', args.output_date, args.dir_num)
     py.mkdir(output_dir)
-    """
-    temp = np.array(clean_val[35], dtype=np.uint8)
-    im = Image.fromarray(temp)
-
-    im.save(py.join(output_dir, "temp.png"))
-
-    print(np.min(clean_val), np.max(clean_val))"""
 
     clean_data /= 255
     clean_data = clean_data*2 -1
@@ -95,18 +91,10 @@ def main():
     noisy_val /= 255.0
     noisy_val = noisy_val*2 -1
 
-    half = int(len(clean_data)/2)
-    print(half, len(clean_data))
-    clean_data = clean_data[half:]
-    noisy_data = noisy_data[:half]
-
     pred_noisy, pred_clean, pred_ex, pred_en = ISCL(args, clean_data, noisy_data, clean_val, noisy_val)
-
 
     clean_val = (clean_val + 1) * 0.5 * 255
     noisy_val = (noisy_val + 1) * 0.5 * 255
-
-
 
     save_dir = py.join(output_dir, 'samples_testing', 'B2A')
     py.mkdir(save_dir)
